@@ -43,17 +43,56 @@
 
 ## 🚀 安装
 
-### 方式一：安装 zip 包（推荐）
-1. 下载本仓库的 `whale-chan.zip` 或自己 `zip -r whale-chan.zip whale-chan/` 打包
-2. 打开 SillyTavern → 扩展面板（Extensions）→ **Install Extension → From ZIP**
-3. 上传后扩展会自动生效。扩展面板找到 **Whale Chan** 那一项，点开设置。
+> ⚠️ **推荐顺序：方式一（手动放目录）> 方式二（ZIP）> 方式三（From Git）**
+> 国内网络原因，From ZIP / From Git 经常因为连接被重置报 500；手动复制目录最稳，100% 一次过。
 
-### 方式二：手动放目录
-1. 把 `whale-chan/` 整个目录放进你的 SillyTavern 安装目录下的：
+### 🟢 方式一 · 手动放目录（首推 · 零失败）
+不用走酒馆任何安装通道。直接复制文件夹：
+
+1. `git clone` 本仓库 / 下载源码包 / 下载 ZIP 解压 → 得到一个完整文件夹
+2. 把**整个文件夹**（里面得有 `manifest.json` 才算对）复制或剪切到：
    ```
-   public/scripts/extensions/whale-chan/
+   <你的SillyTavern安装目录>/public/scripts/extensions/sillytavern-whale-chan/
    ```
-2. 刷新酒馆页面。
+   ⚠️ 目录名可以随意，但必须**直接在 `extensions/` 下一层**，且**该目录下第一层就有 `manifest.json`**
+3. 刷新酒馆页面 → 扩展面板就能看到 **Whale Chan (鲸鱼娘桌宠)**
+4. 在扩展面板里点它的标题展开设置面板
+
+（如果以后想卸载：直接删掉 `extensions/sillytavern-whale-chan/` 这个文件夹）
+
+### 🟡 方式二 · 从 ZIP 安装
+1. 下载本仓库的 **whale-chan.zip**（发布页里打包好的那个，不是 GitHub 自动生成的 Source code）
+2. 打开 SillyTavern → 扩展面板 → **Install Extension → From ZIP**
+3. 选择 `whale-chan.zip` → 上传。若遇到 `Internal Server Error`：
+   - 90% 是 `extensions/` 目录写权限问题（OneDrive/杀毒/只读），改用**方式一**直接复制即可
+   - 老版本酒馆对 ZIP 有 2MB 限制 → 用方式一
+
+### 🔴 方式三 · From Git（从 URL 安装）
+1. 扩展面板 → **Install Extension → From URL**
+2. 输入框里只填 URL，**不要加反引号、引号、空格**：
+   ```
+   https://github.com/zhohaodong/sillytavern-whale-chan
+   ```
+3. 点 Install。如果失败：
+   - 报错 `Connection was reset` / `Failed to connect`：是国内直连 GitHub 被墙，用下方「国内加速」
+   - 报错 `Manifest file not found`：说明你下载的仓库版本**结构还没更新**，请重新下载最新版（2026-08-27 之后）
+
+#### 🌏 国内 From Git 加速（二选一）
+##### 办法 A：让 SillyTavern 走你本机的 VPN 代理（推荐）
+Windows 开始菜单搜 **环境变量**，新增两个**用户变量**，填你本机 VPN 的实际监听端口（常见是 7890 / 7897 / 10809，自己去 VPN 客户端看）：
+```
+变量名: HTTP_PROXY   变量值: http://127.0.0.1:7890
+变量名: HTTPS_PROXY  变量值: http://127.0.0.1:7890
+```
+**端口必须是纯数字**，然后**重启酒馆**（不是刷新页面，要关掉进程再开），再点 Install。
+装完之后这两个变量可以删掉，不影响使用。
+
+##### 办法 B：用 GitHub 镜像站
+在 From URL 里把 `github.com` 换成可用的镜像，例如：
+```
+https://ghproxy.com/https://github.com/zhohaodong/sillytavern-whale-chan
+```
+如果这个镜像也挂了，搜「GitHub 镜像」找最新的就行，格式都是在原 URL 前面加镜像域名。
 
 ---
 
@@ -153,12 +192,16 @@ A：全部存在浏览器 localStorage，同域（同一台酒馆实例）一直
 
 ## 📁 目录结构
 
+> 本仓库的根目录就是扩展本身（Git clone 后直接丢进 `extensions/` 即可用）。
+
 ```
-whale-chan/
-├── manifest.json      # 扩展元信息（SillyTavern 读取）
+sillytavern-whale-chan/
+├── manifest.json      # 扩展元信息（SillyTavern 读取，From Git 通道要求在仓库顶层）
 ├── index.js           # 核心逻辑
 ├── style.css          # 样式（SVG 动画 + 小窗样式 + 云朵样式）
-└── assets/            # 21 张 PNG 立绘
+├── assets/            # 21 张 PNG 立绘
+├── README.md          # 使用说明
+└── .gitignore
 ```
 
 ---
