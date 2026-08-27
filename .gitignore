@@ -1,0 +1,25 @@
+# ====== Whale Chan · SillyTavern 插件 ======
+whale-chan.zip
+*.zip
+test-env/
+
+# ===== 通用前端开发忽略 =====
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+.tmp/
+
+# 工作区残留的原始素材 / 草稿
+original*.jpg
+*.orig
+*.bak
