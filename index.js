@@ -408,6 +408,7 @@ function buildPet() {
 
 // 独立小手机图标（不属于鲸鱼 DOM，避免 pointer capture 冲突）
 let phoneIconEl = null;
+let phoneFabEl = null; // 移动端大按钮（FAB），固定左下角，绝不可能点不中
 let lastPhoneOpenAt = 0;
 
 function buildPhoneIcon() {
@@ -422,27 +423,47 @@ function buildPhoneIcon() {
         <span class="wc-phone-icon-dot"></span>`;
     document.body.appendChild(phoneIconEl);
 
+    // ===== 移动端 FAB：固定左下角的大圆按钮，只在手机/平板显示 =====
+    phoneFabEl = document.createElement('button');
+    phoneFabEl.id = 'wc-phone-fab';
+    phoneFabEl.type = 'button';
+    phoneFabEl.setAttribute('aria-label', '打开鲸鱼娘的小手机');
+    phoneFabEl.innerHTML = `<i class="fa-solid fa-mobile-screen-button"></i>`;
+    document.body.appendChild(phoneFabEl);
+
     const openPhone = (e) => {
         e?.stopPropagation?.();
         e?.preventDefault?.();
         if (Date.now() - lastPhoneOpenAt < 500) return;
         lastPhoneOpenAt = Date.now();
-        showChatWindow();
+        try {
+            showChatWindow();
+        } catch (err) {
+            console.error('[WhaleChan] openPhone error:', err);
+            if (window.toastr) toastr.error(`打开手机失败: ${err.message}`, '', { timeOut: 5000 });
+        }
     };
-    // touchstart 最可靠（移动端），click 兜底（桌面端）
+    // 鲸鱼旁的小图标：touchstart 最可靠（移动端），click 兜底（桌面端）
     phoneIconEl.addEventListener('touchstart', openPhone, { passive: false });
     phoneIconEl.addEventListener('click', openPhone);
-    // 阻止冒泡到 body 上可能的其他监听
     phoneIconEl.addEventListener('pointerdown', e => e.stopPropagation());
+    // FAB：原生 <button>，touchend + click 双保险
+    phoneFabEl.addEventListener('touchend', openPhone, { passive: false });
+    phoneFabEl.addEventListener('click', openPhone);
 }
 
 // 让小手机图标跟随鲸鱼位置（鲸鱼移动/缩放/隐藏时调用）
 function syncPhoneIconPos() {
     if (!phoneIconEl || !root) return;
     const s = petSize();
-    // 图标在鲸鱼左侧偏上
-    phoneIconEl.style.left = `${pos.x - 72}px`;
-    phoneIconEl.style.top = `${pos.y - 6}px`;
+    // 图标在鲸鱼左侧偏上；如果鲸鱼太靠左，改为放到右侧
+    let iconX = pos.x - 72;
+    if (iconX < 4) iconX = pos.x + s + 10; // 鲸鱼靠左 → 图标放右侧
+    // 钳制在屏幕内
+    iconX = Math.min(Math.max(4, iconX), Math.max(4, window.innerWidth - 66));
+    const iconY = Math.min(Math.max(4, pos.y - 6), Math.max(4, window.innerHeight - 104));
+    phoneIconEl.style.left = `${iconX}px`;
+    phoneIconEl.style.top = `${iconY}px`;
 }
 
 /* ---------------- 图片立绘加载 ---------------- */
@@ -665,8 +686,17 @@ function hitPhoneIconRect(cx, cy) {
 }
 
 /* ---------------- 拍一拍核心 ---------------- */
+let lastTapTime = 0;
 function pat() {
     const now = Date.now();
+    // 移动端兜底：快速双击鲸鱼 = 打开小手机（图标点不中时的备选）
+    if (now - lastTapTime < 350 && settings.cloudOn && settings.autoChatMode !== 'puppet') {
+        lastTapTime = 0;
+        showChatWindow();
+        return;
+    }
+    lastTapTime = now;
+
     combo = (now - lastPat < 1300) ? combo + 1 : 0;
     lastPat = now;
     if (settings.sound) blip(combo >= 6 ? 'dizzy' : 'pat');
@@ -916,6 +946,7 @@ function buildSettings() {
                     <input id="wc-maxturns" class="text_pole" type="number" min="5" max="100" step="5" value="${settings.maxTurns}" autocomplete="off">
                 </div>
                 <div class="wc-btn-row">
+                    <button id="wc-open-phone" class="menu_button">📱 打开小手机</button>
                     <button id="wc-start-now" class="menu_button">立即开始偷玩</button>
                     <button id="wc-stop-chat" class="menu_button">停止</button>
                     <button id="wc-test-api" class="menu_button">测试连接</button>
@@ -1079,6 +1110,10 @@ function buildSettings() {
     updateModeDesc();
     // 有 Key 时自动拉取模型列表（1 小时缓存），失败静默
     if (settings.apiKey) fetchModels().then(fillModelList).catch(() => { /* 静默 */ });
+    // 📱 打开小手机（兜底按钮：移动端点不中图标时，从设置面板直接打开）
+    $('#wc-open-phone').on('click', function () {
+        showChatWindow();
+    });
     $('#wc-start-now').on('click', function () {
         if (!settings.apiKey) {
             if (window.toastr) toastr.warning('请先填写 API Key', '', { timeOut: 4000 });
@@ -1930,11 +1965,14 @@ function showPhoneIcon() {
         phoneIconEl.classList.add('show');
         syncPhoneIconPos();
     }
+    // 移动端 FAB 大按钮（CSS 媒体查询控制只在手机/平板显示）
+    phoneFabEl?.classList.add('show');
 }
 
 function hidePhoneIcon() {
     root?.classList.remove('wc-show-phone');
     phoneIconEl?.classList.remove('show');
+    phoneFabEl?.classList.remove('show');
 }
 
 // 常驻逻辑：选了人设小窗模式 + 没关"常驻小手机"时，一直显示（不管有没有开偷玩、有没有选卡）

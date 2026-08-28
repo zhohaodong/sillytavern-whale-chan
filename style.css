@@ -331,9 +331,10 @@
     position: fixed;
     width: 62px;
     height: 100px;
-    z-index: 100000;
+    z-index: 100002; /* 高于聊天窗口(100001)，确保不被任何酒馆面板遮挡 */
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation; /* 移动端：禁止双击缩放延迟，确保 touchstart/click 立即触发 */
     box-sizing: border-box;
     filter: drop-shadow(0 4px 10px rgba(20, 40, 120, 0.3));
     animation: wc-phone-bob 2.6s ease-in-out infinite;
@@ -411,6 +412,34 @@
 @keyframes wc-dot-pulse {
     0%, 100% { transform: scale(1); }
     50%      { transform: scale(1.25); }
+}
+
+/* ---- 移动端 FAB 大按钮（固定左下角，只在手机/平板显示，绝不可能点不中） ---- */
+#wc-phone-fab {
+    display: none; /* 桌面端默认隐藏，媒体查询里在小屏显示 */
+    position: fixed;
+    left: 14px;
+    bottom: 14px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    z-index: 100003;
+    cursor: pointer;
+    background: linear-gradient(160deg, #4D6BFE, #2A3AA8);
+    color: #fff;
+    font-size: 24px;
+    box-shadow: 0 6px 18px rgba(42, 58, 168, 0.5);
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    transition: transform 0.15s;
+}
+#wc-phone-fab:active { transform: scale(0.92); }
+/* FAB 只在手机/平板（小屏）显示；桌面端即使加了 .show 也不出现 */
+@media (max-width: 900px), (max-height: 600px) {
+    #wc-phone-fab.show { display: flex; }
 }
 
 /* ---- 粒子（爱心 / 水珠） ---- */
