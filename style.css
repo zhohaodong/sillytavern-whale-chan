@@ -607,6 +607,9 @@
     overflow: hidden;
     color: #1A2150;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    /* 移动端：消除 300ms 点击延迟/双击缩放干扰，保证点击立即响应 */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
 }
 #whale-chan-window.show { display: block; }
 

@@ -343,7 +343,11 @@ function init() {
         updatePhoneIcon();
         // 聊天手机在打开时：重新 clamp 到屏幕内
         if (winEl && winEl.classList.contains('show')) {
-            clearWinInlineForMobile(); // 移动端：重新让 CSS @media 接管，避免上次 resize:both / moveWin 污染
+            // 移动端：完全让 CSS @media 接管，绝不再写内联 left/top（写了就会"打不开/看不见"）
+            if (isSmallViewport()) {
+                clearWinInlineForMobile();
+                return;
+            }
             const r = winEl.getBoundingClientRect();
             moveWin(
                 Math.min(Math.max(6, r.left), Math.max(6, window.innerWidth - r.width - 6)),
@@ -689,7 +693,14 @@ function hitPhoneIconRect(cx, cy) {
 let lastTapTime = 0;
 function pat() {
     const now = Date.now();
-    // 移动端兜底：快速双击鲸鱼 = 打开小手机（图标点不中时的备选）
+    // ===== 移动端：单击鲸鱼 = 切换小手机开/关（再点一下收起，不挡屏幕） =====
+    // 桌面端保持原有拍一拍逻辑
+    if (isSmallViewport() && settings.cloudOn && settings.autoChatMode !== 'puppet') {
+        if (winEl?.classList.contains('show')) hideChatWindow();
+        else showChatWindow();
+        return;
+    }
+    // 桌面端：快速双击鲸鱼 = 打开小手机（备选）
     if (now - lastTapTime < 350 && settings.cloudOn && settings.autoChatMode !== 'puppet') {
         lastTapTime = 0;
         showChatWindow();
@@ -1738,18 +1749,31 @@ function clearWinInlineForMobile() {
 }
 
 function showChatWindow() {
-    buildChatWindow();
+    try {
+        buildChatWindow();
+    } catch (err) {
+        // 构建中途失败（DOM 异常等）：清掉半成品，允许下次点击重建，并明确报错
+        console.error('[WhaleChan] buildChatWindow error:', err);
+        winEl?.remove();
+        winEl = null;
+        if (window.toastr) toastr.error(`打开手机失败: ${err.message}`, '', { timeOut: 6000 });
+        return;
+    }
+    if (!winEl) return;
     clearWinInlineForMobile(); // <- 关键：移动端强制用 CSS 媒体查询，不吃本地存的桌面位置/尺寸
     winEl.classList.add('show');
+    // 强制可见：内联 display 优先级最高，防被酒馆移动端主题/第三方 CSS 的 display 规则覆盖
+    winEl.style.setProperty('display', 'block', 'important');
     refreshPhoneTitle();
     updatePhoneTime();
-    // 小屏 z-index 再抬一次，确保不被酒馆任何移动端面板盖住
+    // z-index 抬到顶，确保不被酒馆任何面板（尤其移动端抽屉/弹窗）盖住
     if (isSmallViewport()) winEl.style.setProperty('z-index', '2147483646', 'important');
     requestAnimationFrame(() => { winBody.scrollTop = winBody.scrollHeight; });
 }
 
 function hideChatWindow() {
     winEl?.classList.remove('show');
+    winEl?.style.setProperty('display', 'none', 'important');
     clearInterval(phoneTimeTimer);
 }
 
