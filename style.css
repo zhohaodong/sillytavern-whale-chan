@@ -326,23 +326,22 @@
 }
 
 /* ---- 小手机图标（人设小窗模式：鲸鱼旁的常驻小手机，点击打开聊天手机） ---- */
+/* 本体就做大尺寸，移动端好点中（不玩 padding/负 margin，兼容性更稳） */
 #whale-chan .wc-phone-icon {
     position: absolute;
     right: calc(100% + 10px);
-    top: 6px;
-    width: 44px;
-    height: 74px;
+    top: -2px;
+    width: 62px;
+    height: 100px;
     opacity: 0;
-    transform: translateX(8px) scale(0.8);
+    transform: translateX(8px) scale(0.85);
     transform-origin: right center;
     transition: opacity 0.3s, transform 0.3s;
     pointer-events: none; /* 隐藏时不拦截点击 */
-    z-index: 2;
+    z-index: 4;            /* 必须高于 .wc-inner，避免被鲸鱼 body 遮挡点击 */
     cursor: pointer;
-    /* 扩大点击热区（移动端 44px 以上才好按），用外边透明 padding + 负 margin 拉回原位置 */
-    padding: 16px 18px 16px 26px;
-    margin: -16px -18px -16px -26px;
-    box-sizing: content-box;
+    -webkit-tap-highlight-color: transparent;
+    box-sizing: border-box;
     filter: drop-shadow(0 4px 10px rgba(20, 40, 120, 0.3));
     animation: wc-phone-bob 2.6s ease-in-out infinite;
 }
@@ -350,19 +349,25 @@
     opacity: 1;
     transform: translateX(0) scale(1);
     pointer-events: auto;
+    /* 保证点击热区穿透整个图标，不会被里面的小机身吞掉 */
+    isolation: isolate;
 }
 #whale-chan .wc-phone-icon:hover { filter: drop-shadow(0 6px 14px rgba(77, 107, 254, 0.5)); }
 #whale-chan .wc-phone-icon:hover .wc-phone-icon-body { border-color: #6C86FF; }
 
 @keyframes wc-phone-bob {
     0%, 100% { margin-top: 0; }
-    50%      { margin-top: -5px; }
+    50%      { margin-top: -4px; }
 }
 
-/* 手机机身 */
+/* 手机机身：相对外层图标框做等比缩小 + 居中（外层作为点击热区，内部只做视觉） */
 #whale-chan .wc-phone-icon-body {
     position: absolute;
-    inset: 0;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 44px;
+    height: 74px;
     border-radius: 11px;
     background: linear-gradient(160deg, #3A52D8, #2A3AA8);
     border: 2px solid #4D6BFE;
@@ -372,6 +377,8 @@
     align-items: center;
     padding: 7px 5px 8px;
     gap: 4px;
+    /* 视觉层不抢点击，热区交给外层 .wc-phone-icon */
+    pointer-events: none;
 }
 /* 手机屏幕 */
 #whale-chan .wc-phone-icon-screen {

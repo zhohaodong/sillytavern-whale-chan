@@ -343,6 +343,7 @@ function init() {
         updatePhoneIcon();
         // 聊天手机在打开时：重新 clamp 到屏幕内
         if (winEl && winEl.classList.contains('show')) {
+            clearWinInlineForMobile(); // 移动端：重新让 CSS @media 接管，避免上次 resize:both / moveWin 污染
             const r = winEl.getBoundingClientRect();
             moveWin(
                 Math.min(Math.max(6, r.left), Math.max(6, window.innerWidth - r.width - 6)),
@@ -616,9 +617,38 @@ function onPointerUp(e) {
         root.classList.remove('wc-dragging');
         savePos();
     } else {
+        // ===== 移动端兜底：点击如果落在"鲸鱼左侧小手机图标虚拟矩形"，直接打开聊天手机 =====
+        // 哪怕浏览器事件分发没走到 .wc-phone-icon 上（padding/遮挡/缩放各种坑），也能点中
+        if (hitPhoneIconRect(e.clientX, e.clientY)) {
+            try { root.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+            dragState = null;
+            if (Date.now() - lastPhoneOpenAt >= 500) {
+                lastPhoneOpenAt = Date.now();
+                showChatWindow();
+            }
+            return;
+        }
         pat();
     }
     dragState = null;
+}
+
+// 虚拟命中：判断 (cx, cy) 是否落在"鲸鱼左侧手机图标区域"（移动端热区兜底）
+function hitPhoneIconRect(cx, cy) {
+    if (!root || !root.classList.contains('wc-show-phone')) return false;
+    const iconEl = root.querySelector('.wc-phone-icon');
+    if (!iconEl) return false;
+    // 优先拿图标 DOM 真实矩形
+    try {
+        const r = iconEl.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && cx >= r.left - 6 && cx <= r.right + 6 && cy >= r.top - 6 && cy <= r.bottom + 6) return true;
+    } catch { /* 退化为相对鲸鱼根的估算矩形 */ }
+    // 回退：#whale-chan 根左边扩展一块手机图标热区
+    const wr = root.getBoundingClientRect();
+    const iconW = 62, iconH = 100;
+    const left = wr.left - iconW - 14;
+    const top = wr.top - 2;
+    return cx >= left - 8 && cx <= left + iconW + 8 && cy >= top - 8 && cy <= top + iconH + 8;
 }
 
 /* ---------------- 拍一拍核心 ---------------- */
@@ -1592,6 +1622,12 @@ function buildChatWindow() {
 
 function moveWin(x, y) {
     if (!winEl) return;
+    // 小屏：完全不允许用 left/top 内联，媒体查询定死左右下边距贴边，写了反而"打不开"
+    if (isSmallViewport()) {
+        clearWinInlineForMobile();
+        saveWinState();
+        return;
+    }
     const r = winEl.getBoundingClientRect();
     x = Math.min(Math.max(0, x), Math.max(0, window.innerWidth - r.width));
     y = Math.min(Math.max(0, y), Math.max(0, window.innerHeight - 40));
@@ -1612,6 +1648,11 @@ function saveWinState() {
 
 function restoreWinState() {
     if (!winEl) return;
+    // 移动端：完全不读本地存的桌面端尺寸坐标，让 CSS @media 接管
+    if (isSmallViewport()) {
+        clearWinInlineForMobile();
+        return;
+    }
     try {
         const s = JSON.parse(localStorage.getItem(WIN_STATE_KEY));
         if (s && Number.isFinite(s.w) && Number.isFinite(s.h)) {
@@ -1623,12 +1664,39 @@ function restoreWinState() {
     } catch { /* 使用 CSS 默认位置 */ }
 }
 
+// ============ 移动端 vs 桌面端：是否"强制小屏模式"（媒体查询接管位置尺寸，不读本地持久化） ============
+function isSmallViewport() {
+    try {
+        const w = window.visualViewport?.width ?? window.innerWidth;
+        const h = window.visualViewport?.height ?? window.innerHeight;
+        return w <= 900 || h <= 700;
+    } catch {
+        return window.innerWidth <= 900 || window.innerHeight <= 700;
+    }
+}
+
+// 小屏：清掉所有会和媒体查询 @media 冲突的 style 内联属性，让 CSS 完全接管
+function clearWinInlineForMobile() {
+    if (!winEl) return;
+    if (isSmallViewport()) {
+        winEl.style.left = '';
+        winEl.style.top = '';
+        winEl.style.right = '';
+        winEl.style.bottom = '';
+        winEl.style.width = '';
+        winEl.style.height = '';
+    }
+}
+
 function showChatWindow() {
     buildChatWindow();
+    clearWinInlineForMobile(); // <- 关键：移动端强制用 CSS 媒体查询，不吃本地存的桌面位置/尺寸
     winEl.classList.add('show');
     refreshPhoneTitle();
     updatePhoneTime();
-    winBody.scrollTop = winBody.scrollHeight;
+    // 小屏 z-index 再抬一次，确保不被酒馆任何移动端面板盖住
+    if (isSmallViewport()) winEl.style.setProperty('z-index', '2147483646', 'important');
+    requestAnimationFrame(() => { winBody.scrollTop = winBody.scrollHeight; });
 }
 
 function hideChatWindow() {
