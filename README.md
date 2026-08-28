@@ -1,9 +1,9 @@
 # 🐋 Whale Chan · 鲸鱼娘桌宠（SillyTavern 插件）
 
-一个给 [SillyTavern](https://github.com/SillyTavern/SillyTavern) 用的纯前端桌宠扩展。  
-一只傲娇的鲸鱼娘会趴在屏幕右下角陪你，会开心、会生气、会偷懒，**并且——会趁你不注意偷偷玩你的角色卡**。
+[SillyTavern](https://github.com/SillyTavern/SillyTavern) 的纯前端桌宠扩展 — 一只傲娇的鲸鱼娘陪你聊角色卡。  
+**她会拍一拍回应你，也会趁你不在偷偷（或光明正大）拿你的 API Key，和酒馆里的角色聊得飞起 🐳💨**
 
-> 完全在浏览器前端运行，不需要额外服务端。所有配置和聊天记录存在你的浏览器 localStorage。
+> ✅ 零后端，纯浏览器运行 · 设置与聊天记录存 localStorage · 酒馆正则 / 世界书 / 当前预设全生效
 
 ---
 
