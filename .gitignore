@@ -1,6 +1,9 @@
 # ====== Whale Chan · SillyTavern 插件 ======
-whale-chan.zip
+# *.zip 默认忽略，但发行用 ZIP 主动放行进仓库（供 downloadUrl / 用户下载）
 *.zip
+!whale-chan.zip
+!sillytavern-whale-chan.local-test.zip
+!phone-ui-v*.patch
 test-env/
 
 # ===== 通用前端开发忽略 =====

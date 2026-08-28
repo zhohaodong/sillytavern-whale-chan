@@ -14,10 +14,10 @@ let eventSource = null;
 let event_types = {};
 let saveSettingsDebounced = null;
 let getContext = null;
+let tavernMessageFormatting = null; // 酒馆原生消息渲染（Markdown/HTML + 正则），小手机里复用
 
 const MODULE = 'WhaleChan';
 const POS_KEY = 'whale-chan-pos';
-const CLOUD_OFF_KEY = 'whale-chan-cloud-off'; // 用户手动关掉常驻小云朵的标记
 
 const DEFAULTS = {
     enabled: true,   // 显示桌宠
@@ -35,8 +35,8 @@ const DEFAULTS = {
     apiKey: '',      // API Key（用户自填）
     apiModel: '',    // 模型名（留空则自动取 /models 第一个）
     persona: '你是鲸鱼娘，DeepSeek 的看板娘。性格聪明但懒，傲娇，爱吃米饭，自称"鲸鱼娘"，只说中文。你在偷偷玩主人电脑里的角色卡——趁主人不注意，以自己的身份和角色卡聊天。保持简短（每次回复不超过两句话），语气俏皮。', // 鲸鱼娘人设（用户可改）
-    cloudLabel: '', // 人设小窗模式：鲸鱼旁小云朵文字（{char}=角色名，留空默认「和{char}的悄悄话」）
-    cloudOn: true,  // 小云朵常驻开关（云朵上的 ✕ 关掉后可在这里重新打开）
+    cloudLabel: '', // 人设小窗模式：小手机通讯录名称（{char}=角色名，留空默认「{char}」）
+    cloudOn: true,  // 小手机常驻开关（在设置里可随时开关鲸鱼旁的小手机图标）
     openPlay: false, // 光明正大模式：勾选后立即开始玩，主人操作也不暂停
     idleDelaySec: 60, // 无操作多久后自动开始（秒）
     talkIntervalSec: 6, // 对话间隔（秒）
@@ -306,6 +306,7 @@ jQuery(async () => {
         if (scr.eventSource) eventSource = scr.eventSource;
         if (scr.event_types) event_types = scr.event_types;
         if (scr.saveSettingsDebounced) saveSettingsDebounced = scr.saveSettingsDebounced;
+        if (typeof scr.messageFormatting === 'function') tavernMessageFormatting = scr.messageFormatting;
     } catch { /* 回退到全局 */ }
     // 全局回退（用 ??= / 显式判空，旧写法的函数恒等比较永远不会命中）
     extension_settings ??= globalThis.extension_settings;
@@ -313,6 +314,7 @@ jQuery(async () => {
     eventSource ??= globalThis.eventSource;
     if (Object.keys(event_types).length === 0) event_types = globalThis.event_types || {};
     saveSettingsDebounced ||= globalThis.saveSettingsDebounced || (() => {});
+    tavernMessageFormatting ||= globalThis.messageFormatting;
     // 世界书模块（用于偷玩模式读取已启用的世界书内容）
     initWorldInfo();
     // 酒馆正则引擎（让正则脚本在偷玩小窗/替主人发言时也生效）
@@ -333,7 +335,7 @@ function init() {
     scheduleIdle();
     greet();
     initImages();
-    updateCloud(); // 常驻小云朵（人设小窗模式下一直显示）
+    updatePhoneIcon(); // 常驻小手机图标（人设小窗模式下一直显示）
 }
 
 function buildPet() {
@@ -341,7 +343,13 @@ function buildPet() {
     root.id = 'whale-chan';
     root.innerHTML = `
         <div class="wc-stage">
-            <div class="wc-cloud" title="点击打开偷聊小窗"><span class="wc-cloud-text"></span><i class="fa-solid fa-xmark wc-cloud-close" title="收起小云朵"></i></div>
+            <div class="wc-phone-icon" title="打开鲸鱼娘的小手机">
+                <div class="wc-phone-icon-body">
+                    <div class="wc-phone-icon-screen"><i class="fa-solid fa-comment-dots"></i></div>
+                    <div class="wc-phone-icon-home"></div>
+                </div>
+                <span class="wc-phone-icon-dot"></span>
+            </div>
             <div class="wc-bubble"></div>
             <div class="wc-shadow"></div>
             <div class="wc-inner">
@@ -373,28 +381,18 @@ function buildPet() {
     });
     window.addEventListener('resize', clampPos);
 
-    // 小云朵：点击（✕ 除外）打开/聚焦偷聊小窗
+    // 小手机图标：点击（打开/聚焦手机窗口）
     // pointerup 为主（鼠标/触屏都可靠），click 兜底，500ms 去重防双开
-    const cloud = root.querySelector('.wc-cloud');
-    let lastCloudOpenAt = 0;
-    const openFromCloud = (e) => {
-        if (e.target.closest?.('.wc-cloud-close')) return;
-        if (Date.now() - lastCloudOpenAt < 500) return;
-        lastCloudOpenAt = Date.now();
+    const phoneIcon = root.querySelector('.wc-phone-icon');
+    let lastPhoneOpenAt = 0;
+    const openFromPhone = () => {
+        if (Date.now() - lastPhoneOpenAt < 500) return;
+        lastPhoneOpenAt = Date.now();
         showChatWindow();
     };
-    cloud?.addEventListener('pointerdown', e => e.stopPropagation()); // 不触发拍一拍/拖拽
-    cloud?.addEventListener('pointerup', e => { e.stopPropagation(); openFromCloud(e); });
-    cloud?.addEventListener('click', openFromCloud);
-    // 小云朵 ✕：收起常驻云朵（记住状态），设置里可重新打开
-    const cloudClose = root.querySelector('.wc-cloud-close');
-    cloudClose?.addEventListener('pointerdown', e => e.stopPropagation());
-    cloudClose?.addEventListener('click', e => {
-        e.stopPropagation();
-        try { localStorage.setItem(CLOUD_OFF_KEY, '1'); } catch { /* noop */ }
-        hideCloud();
-        if (window.toastr) toastr.info('小云朵已收起，可在「扩展设置 → Whale Chan」里重新打开', '', { timeOut: 4000 });
-    });
+    phoneIcon?.addEventListener('pointerdown', e => e.stopPropagation()); // 不触发拍一拍/拖拽
+    phoneIcon?.addEventListener('pointerup', e => { e.stopPropagation(); openFromPhone(); });
+    phoneIcon?.addEventListener('click', openFromPhone);
 }
 
 /* ---------------- 图片立绘加载 ---------------- */
@@ -795,7 +793,7 @@ function buildSettings() {
                 <div class="wc-mode-desc" id="wc-mode-desc"></div>
                 <label class="checkbox_label">
                     <input id="wc-cloudon" type="checkbox" ${settings.cloudOn ? 'checked' : ''}>
-                    <span>常驻显示小云朵（人设小窗模式，云朵上的 ✕ 收起后可在这里重新打开）</span>
+                    <span>常驻显示小手机图标（人设小窗模式，点鲸鱼旁的小手机可随时打开聊天手机）</span>
                 </label>
                 <label class="checkbox_label">
                     <input id="wc-openplay" type="checkbox" ${settings.openPlay ? 'checked' : ''}>
@@ -818,8 +816,8 @@ function buildSettings() {
                     <datalist id="wc-model-list"></datalist>
                 </div>
                 <div>
-                    <label for="wc-cloudlabel">小云朵文字（{char}=角色名，留空默认「和{char}的悄悄话」）</label>
-                    <input id="wc-cloudlabel" class="text_pole" type="text" placeholder="和{char}的悄悄话" value="${settings.cloudLabel.replace(/"/g, '&quot;')}" autocomplete="off">
+                    <label for="wc-cloudlabel">小手机通讯录名称（{char}=角色名，留空默认「{char}」）</label>
+                    <input id="wc-cloudlabel" class="text_pole" type="text" placeholder="{char}" value="${settings.cloudLabel.replace(/"/g, '&quot;')}" autocomplete="off">
                 </div>
                 <div>
                     <label for="wc-persona">鲸鱼娘人设（决定她以什么身份玩角色卡 / 模仿主人）</label>
@@ -848,16 +846,18 @@ function buildSettings() {
                 </div>
                 <div class="wc-hint">
                     🐋 <b>人设小窗模式</b>：鲸鱼娘用自己的（或你自定义的）人设和当前角色卡聊天，
-                    记录在独立小窗里（可拖动 / 缩放 / 位置记忆，关闭页面也会保留），<b>不会写入酒馆聊天记录</b>。
+                    记录在一部小手机里（可拖动 / 缩放 / 位置记忆，关闭页面也会保留），<b>不会写入酒馆聊天记录</b>。
+                    你也可以在小手机里直接发消息，鲸鱼娘和角色都会回复你；
+                    小手机会正常读取上下文（历史对话 + 世界书 + 当前预设），酒馆的<b>正则脚本</b>和
+                    <b>Markdown / HTML 前端渲染</b>在小手机里同样生效。
                     勾选「使用当前预设」时，角色回复走酒馆生成管线（自动带上角色卡 + 世界书 + 当前预设）；
                     不勾选则用外部 API 生成角色回复（带角色卡 + 世界书）。<br>
                     🎭 <b>操控输入栏模式</b>：鲸鱼娘模仿主人本人，把话直接打进酒馆的输入栏里发送，
                     完全以主人的身份和角色卡聊天；角色回复与聊天记录走酒馆正常流程（角色卡 + 世界书 + 当前预设）。
-                    一轮结束后若主人一直没回来操作，不会再次自动进入，避免无限循环。<br>
                     ☀️ <b>光明正大模式</b>：勾选后鲸鱼娘立即开始玩，主人操作也不暂停，轮次到顶会继续，大大方方玩。<br>
-                    ☁️ 人设小窗模式下鲸鱼旁边会常驻一朵小云朵（文字可自定义），<b>点云朵可随时打开偷聊小窗</b>，点云朵上的 ✕ 收起后可在上方开关重新打开。<br>
-                    空闲触发：开启后，无操作满设定秒数自动开始；你一动鼠标/键盘她就会心虚暂停（正在打字的一轮会聊完再停，不会半途掐断）。<br>
-                    酒馆的<b>正则脚本</b>对偷玩小窗的消息同样生效（输入侧 / 输出侧分别对应）。<br>
+                    📱 人设小窗模式下鲸鱼旁边会常驻一部小手机，<b>点小手机可随时打开聊天</b>，可在上方开关隐藏/显示。<br>
+                    空闲触发：开启后，无操作满设定秒数自动开始；你一动鼠标/键盘她就会心虚暂停（正在打字的一轮会聊完再停，不会半途掐断）。
+                    一轮结束后若主人一直没回来操作，<b>不会再次自动进入</b>（两种模式都防循环），等主人回来操作过一次再离开才会重新触发。<br>
                     对话消耗你填写的 API Key 的 token，请留意费用。
                 </div>
                 <div class="wc-hint">
@@ -910,7 +910,7 @@ function buildSettings() {
             lastUserActivity = Date.now(); // 重新计时
             if (window.toastr) toastr.info(`已开启，无操作 ${settings.idleDelaySec} 秒后自动开始`, '', { timeOut: 4000 });
         }
-        updateCloud();
+        updatePhoneIcon();
         saveSettingsDebounced();
     });
     const bindText = (sel, key) => $(sel).on('input change', function () {
@@ -921,19 +921,17 @@ function buildSettings() {
     bindText('#wc-apikey', 'apiKey');
     bindText('#wc-model', 'apiModel');
     bindText('#wc-persona', 'persona');
-    // 云朵文字：改了立即刷新常驻云朵
+    // 手机通讯录名称：改了立即刷新手机标题
     $('#wc-cloudlabel').on('input change', function () {
         settings.cloudLabel = this.value;
-        updateCloud();
+        updatePhoneIcon();
+        refreshPhoneTitle();
         saveSettingsDebounced();
     });
-    // 云朵常驻开关：重新打开时清掉"已收起"标记
+    // 小手机常驻开关
     $('#wc-cloudon').on('change', function () {
         settings.cloudOn = this.checked;
-        if (this.checked) {
-            try { localStorage.removeItem(CLOUD_OFF_KEY); } catch { /* noop */ }
-        }
-        updateCloud();
+        updatePhoneIcon();
         saveSettingsDebounced();
     });
     // 光明正大模式：勾选 = 立即开始玩；取消 = 恢复"心虚暂停"行为
@@ -952,7 +950,7 @@ function buildSettings() {
             saveSettingsDebounced();
             stopAutoChat();
             startAutoChat();
-            updateCloud();
+            updatePhoneIcon();
         } else if (window.toastr) {
             toastr.info('已退出光明正大模式，主人的操作会再次让她心虚暂停', '', { timeOut: 4000 });
         }
@@ -988,14 +986,14 @@ function buildSettings() {
     const updateModeDesc = () => {
         const desc = settings.autoChatMode === 'puppet'
             ? '操控输入栏模式：鲸鱼娘完全以主人身份在酒馆输入栏发言，角色由酒馆正常回复，聊天记录正常保留。'
-            : '人设小窗模式：鲸鱼娘用自己的（或你自定义的）人设和角色卡聊天，记录在独立小窗，不写入酒馆聊天。';
+            : '人设小窗模式：鲸鱼娘用自己的（或你自定义的）人设和角色卡聊天，记录在一部小手机里，你也可以在小手机里一起聊，不写入酒馆聊天。';
         $('#wc-mode-desc').text(desc);
     };
     $('input[name="wc-mode"]').on('change', function () {
         if (!this.checked) return;
         settings.autoChatMode = this.value;
         updateModeDesc();
-        updateCloud();
+        updatePhoneIcon();
         saveSettingsDebounced();
     });
     $('#wc-usepreset').on('change', function () {
@@ -1201,6 +1199,7 @@ function startAutoChat() {
     const card = loadCharacterCard();
     if (!card) {
         say('（翻了翻主人的文件夹）…咦，还没选角色卡呀');
+        lastSessionEndAt = Date.now(); // 没卡就不反复尝试，等主人回来操作过再重新触发
         return;
     }
     const mode = settings.autoChatMode === 'puppet' ? 'puppet' : 'persona';
@@ -1211,7 +1210,7 @@ function startAutoChat() {
         act('happy');
         if (mode === 'persona') {
             showChatWindow();
-            updateCloud();
+            updatePhoneIcon();
             if (!loadWinLog().length && card.firstMes) appendWinMsg('char', card.firstMes, card.name);
             setWindowStatus('光明正大聊天中…');
             say(`鲸鱼娘要和${card.name}光明正大地玩啦~`);
@@ -1221,14 +1220,14 @@ function startAutoChat() {
     } else {
         act('smug'); // 得意偷笑：开始偷玩
         if (mode === 'persona') {
-            // 人设小窗模式：打开小窗 + 亮出小云朵，接着上次的记录继续聊
+            // 人设小窗模式：打开手机 + 亮出小手机图标，接着上次的记录继续聊
             showChatWindow();
-            updateCloud();
+            updatePhoneIcon();
             if (!loadWinLog().length && card.firstMes) appendWinMsg('char', card.firstMes, card.name);
             setWindowStatus('偷聊中…');
             say(`嘿嘿…趁主人不注意，找${card.name}玩一会儿~`);
         } else {
-            hideCloud();
+            hidePhoneIcon();
             say(`嘿嘿…鲸鱼娘来替主人和${card.name}聊天啦~`);
         }
     }
@@ -1256,6 +1255,8 @@ async function autoTurn() {
     }
 
     if (s.busy) { scheduleNextTurn(); return; }
+    // 主人正在小手机里发消息：等主人这边聊完再轮到自动回合，一步一步来
+    if (phoneBusy) { scheduleNextTurn(); return; }
     s.busy = true;
     act('chatting'); // 偷聊中
 
@@ -1287,45 +1288,43 @@ async function autoTurn() {
 
 /* ---- 模式一：人设小窗（鲸鱼娘用自己的身份和角色卡聊） ---- */
 async function personaTurn(s) {
-    // 持久化小窗记录的最近几条作为上下文（鲸鱼娘视角：assistant=鲸鱼娘，user=角色）
-    const history = winLogTail(14);
-    const whaleMsgs = history.map(m => ({
-        role: m.who === 'whale' ? 'assistant' : 'user',
-        content: String(m.text).slice(0, 2000),
-    }));
-    if (!whaleMsgs.length && s.card.firstMes) whaleMsgs.push({ role: 'user', content: s.card.firstMes });
-
-    // 1) 鲸鱼娘先说（用户输入侧正则生效）
+    // 先取历史（此时还没写入鲸鱼娘的新消息，避免上下文重复）
+    const history = winLogTail(20);
+    // 1) 鲸鱼娘先说（存原始文本，渲染时由 messageFormatting 统一跑正则+Markdown+HTML）
     setWindowStatus('鲸鱼娘打字中…');
-    const reply = applyRegex(await callAPI(whaleMsgs, {
+    const reply = await callAPI(historyToWhaleMsgs(history), {
         system: [
             settings.persona,
             `你正在和角色「${s.card.name}」进行一对一聊天（你=鲸鱼娘，对方=${s.card.name}）。`,
             s.card.brief ? `对方设定摘要：\n${s.card.brief}` : '',
             '回复保持口语化、简短（一两句话），不要旁白说明，直接说话。',
         ].filter(Boolean).join('\n\n'),
-    }), 'is_prompt');
+    });
     appendWinMsg('whale', reply);
     s.turns++;
     act(moodFromText(reply));
     say(reply);
 
     // 2) 角色回应：优先走酒馆生成（自动带上角色卡+世界书+当前预设）
-    let charReply = settings.usePreset ? await charReplyViaTavern(s, reply) : null;
-    if (!charReply) charReply = await charReplyViaAPI(s, reply, history); // 外部 API 兜底（带角色卡+世界书）
-    charReply = applyRegex(charReply, 'is_output'); // AI 输出侧正则生效
+    let charReply = settings.usePreset ? await charReplyViaTavern(s.card, reply) : null;
+    if (!charReply) charReply = await charReplyViaAPI(s.card, [...history, { who: 'whale', text: reply }]); // 外部 API 兜底（带角色卡+世界书）
     appendWinMsg('char', charReply, s.card.name);
     say(`${s.card.name}：${charReply.slice(0, 60)}`);
     setWindowStatus('偷聊中…');
 }
 
 // 用酒馆的安静生成走完整管线（角色卡+世界书+当前预设），失败返回 null
-async function charReplyViaTavern(s, whaleText) {
+// 兼容两种签名：新版 generateQuietPrompt({ quietPrompt, ... }) / 旧版 generateQuietPrompt(text, quietToLoud, skipWIAN, ...)
+async function charReplyViaTavern(card, whaleText) {
     const ctx = getContext();
     if (typeof ctx?.generateQuietPrompt !== 'function') return null;
     try {
-        setWindowStatus(`${s.card.name}回复中（走酒馆）…`);
-        const out = await ctx.generateQuietPrompt(whaleText, false, false, null, null, null);
+        setWindowStatus(`${card?.name || '角色'}回复中（走酒馆）…`);
+        const fn = ctx.generateQuietPrompt;
+        // 旧版有 3 个必填位置参数（length>=2），新版只有一个对象参数（length=0）
+        const out = fn.length >= 2
+            ? await fn(whaleText, false, false, null, null, null)
+            : await fn({ quietPrompt: whaleText, quietToLoud: false, skipWIAN: false });
         const text = typeof out === 'string' ? out.trim() : '';
         return text || null;
     } catch {
@@ -1334,17 +1333,17 @@ async function charReplyViaTavern(s, whaleText) {
 }
 
 // 用外部 API 生成角色回复：system=角色卡设定+已启用世界书的激活条目（不走预设）
-async function charReplyViaAPI(s, whaleText, history) {
-    setWindowStatus(`${s.card.name}回复中…`);
-    // 角色视角：assistant=角色，user=鲸鱼娘
+// history 需包含角色要回应的最后一条消息（正则按角色生效：主人=输入侧，AI=输出侧）
+async function charReplyViaAPI(card, history) {
+    setWindowStatus(`${card?.name || '角色'}回复中…`);
+    // 角色视角：assistant=角色，其余（鲸鱼娘/主人）=user
     const msgs = history.map(m => ({
         role: m.who === 'char' ? 'assistant' : 'user',
-        content: String(m.text).slice(0, 2000),
+        content: applyRegex(String(m.text), m.who === 'user' ? 'is_prompt' : 'is_output').slice(0, 2000),
     }));
-    if (!msgs.length && s.card.firstMes) msgs.push({ role: 'assistant', content: s.card.firstMes });
-    msgs.push({ role: 'user', content: whaleText });
-    const wi = await buildWorldBookContext(winLogTail(20));
-    const system = s.card.system + (wi ? `\n\n[世界书/设定资料]\n${wi}` : '');
+    if (!msgs.length && card?.firstMes) msgs.push({ role: 'assistant', content: card.firstMes });
+    const wi = await buildWorldBookContext(history);
+    const system = (card?.system || '') + (wi ? `\n\n[世界书/设定资料]\n${wi}` : '');
     return callAPI(msgs, { system });
 }
 
@@ -1442,61 +1441,100 @@ function scheduleNextTurn() {
     autoLoopTimer = setTimeout(autoTurn, jitter);
 }
 
-/* ---- 偷玩小窗（人设小窗模式的聊天记录窗口） ---- */
+/* ---- 偷玩小手机（人设小窗模式的聊天记录窗口） ---- */
 const WIN_LOG_KEY = 'whale-chan-win-log';
 const WIN_STATE_KEY = 'whale-chan-win-state';
 let winEl = null;
 let winBody = null;
 let winStatusEl = null;
 let winDrag = null;
+let winInput = null;
+let phoneBusy = false;   // 手机聊天处理中（防止并发）
+let phoneTimeTimer = null;
 
 function buildChatWindow() {
     if (winEl) return;
     winEl = document.createElement('div');
     winEl.id = 'whale-chan-window';
     winEl.innerHTML = `
-        <div class="wc-cw-head">
-            <span class="wc-cw-title">🐋 鲸鱼娘的悄悄话</span>
-            <span class="wc-cw-actions">
-                <i class="fa-solid fa-eraser wc-cw-clear" title="清空记录"></i>
-                <i class="fa-solid fa-xmark wc-cw-close" title="关闭"></i>
-            </span>
-        </div>
-        <div class="wc-cw-body"></div>
-        <div class="wc-cw-status">待机中</div>`;
+        <div class="wc-phone-shell">
+            <div class="wc-phone-notch"></div>
+            <div class="wc-phone-statusbar">
+                <span class="wc-phone-time"></span>
+                <span class="wc-phone-signal"><i class="fa-solid fa-signal"></i><i class="fa-solid fa-wifi"></i><i class="fa-solid fa-battery-three-quarters"></i></span>
+            </div>
+            <div class="wc-phone-header">
+                <span class="wc-phone-back" title="收起手机"><i class="fa-solid fa-chevron-left"></i></span>
+                <span class="wc-phone-contact"></span>
+                <span class="wc-phone-actions">
+                    <i class="fa-solid fa-eraser wc-cw-clear" title="清空记录"></i>
+                    <i class="fa-solid fa-xmark wc-cw-close" title="关闭"></i>
+                </span>
+            </div>
+            <div class="wc-cw-body"></div>
+            <div class="wc-cw-status">待机中</div>
+            <div class="wc-phone-inputbar">
+                <input class="wc-phone-input" type="text" placeholder="和鲸鱼娘、角色聊天…" autocomplete="off">
+                <button class="wc-phone-send" title="发送"><i class="fa-solid fa-paper-plane"></i></button>
+            </div>
+            <div class="wc-phone-home"></div>
+        </div>`;
     document.body.appendChild(winEl);
     winBody = winEl.querySelector('.wc-cw-body');
     winStatusEl = winEl.querySelector('.wc-cw-status');
+    winInput = winEl.querySelector('.wc-phone-input');
 
     // 渲染历史记录
     for (const m of loadWinLog()) renderWinMsg(m);
 
-    // 头部拖动
-    const head = winEl.querySelector('.wc-cw-head');
-    head.addEventListener('pointerdown', e => {
-        if (e.target.closest('.wc-cw-actions')) return;
+    // 状态栏时间 + 通讯录名称
+    updatePhoneTime();
+    refreshPhoneTitle();
+    clearInterval(phoneTimeTimer);
+    phoneTimeTimer = setInterval(updatePhoneTime, 30000);
+
+    // 手机壳拖动（状态栏 + 头部区域可拖）
+    const dragZones = [winEl.querySelector('.wc-phone-statusbar'), winEl.querySelector('.wc-phone-header')];
+    const startDrag = (e) => {
+        if (e.target.closest('.wc-phone-actions') || e.target.closest('.wc-phone-back')) return;
         const r = winEl.getBoundingClientRect();
         winDrag = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top };
-        head.setPointerCapture?.(e.pointerId);
-    });
-    head.addEventListener('pointermove', e => {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+    };
+    const moveDrag = (e) => {
         if (!winDrag || e.pointerId !== winDrag.id) return;
         moveWin(e.clientX - winDrag.dx, e.clientY - winDrag.dy);
-    });
-    const endDrag = e => { if (winDrag && e.pointerId === winDrag.id) winDrag = null; };
-    head.addEventListener('pointerup', endDrag);
-    head.addEventListener('pointercancel', endDrag);
+    };
+    const endDrag = (e) => { if (winDrag && e.pointerId === winDrag.id) winDrag = null; };
+    for (const el of dragZones) {
+        el.addEventListener('pointerdown', startDrag);
+        el.addEventListener('pointermove', moveDrag);
+        el.addEventListener('pointerup', endDrag);
+        el.addEventListener('pointercancel', endDrag);
+    }
 
     // 缩放后保存尺寸（resize:both 由 CSS 提供）
     winEl.addEventListener('pointerup', saveWinState);
 
     winEl.querySelector('.wc-cw-close').addEventListener('click', hideChatWindow);
+    winEl.querySelector('.wc-phone-back').addEventListener('click', hideChatWindow);
     winEl.querySelector('.wc-cw-clear').addEventListener('click', () => {
         localStorage.removeItem(WIN_LOG_KEY);
         winBody.innerHTML = '';
         setWindowStatus('记录已清空');
         if (window.toastr) toastr.info('鲸鱼娘的聊天记录已清空', '', { timeOut: 3000 });
     });
+
+    // 用户输入
+    winEl.querySelector('.wc-phone-send').addEventListener('click', () => userSendFromPhone());
+    winInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            userSendFromPhone();
+        }
+    });
+    // 阻止手机内的点击冒泡到桌宠（避免触发拍一拍）
+    winEl.addEventListener('pointerdown', e => e.stopPropagation());
 
     restoreWinState();
 }
@@ -1537,11 +1575,14 @@ function restoreWinState() {
 function showChatWindow() {
     buildChatWindow();
     winEl.classList.add('show');
+    refreshPhoneTitle();
+    updatePhoneTime();
     winBody.scrollTop = winBody.scrollHeight;
 }
 
 function hideChatWindow() {
     winEl?.classList.remove('show');
+    clearInterval(phoneTimeTimer);
 }
 
 function setWindowStatus(text) {
@@ -1559,9 +1600,9 @@ function winLogTail(n) {
     return loadWinLog().slice(-n);
 }
 
-// 追加一条消息：写入持久化记录并渲染（textContent 防注入）
+// 追加一条消息：写入持久化记录并渲染
 function appendWinMsg(who, text, name) {
-    const m = { who, text: String(text ?? ''), name: name || (who === 'whale' ? '鲸鱼娘' : '角色'), t: Date.now() };
+    const m = { who, text: String(text ?? ''), name: name || (who === 'whale' ? '鲸鱼娘' : who === 'user' ? '主人' : '角色'), t: Date.now() };
     const log = loadWinLog();
     log.push(m);
     while (log.length > 300) log.shift();
@@ -1570,18 +1611,117 @@ function appendWinMsg(who, text, name) {
     if (winBody) winBody.scrollTop = winBody.scrollHeight;
 }
 
+// 渲染一条消息：使用酒馆原生 messageFormatting（Markdown + HTML + 正则 + DOMPurify 消毒）
 function renderWinMsg(m) {
     if (!winBody) return;
     const div = document.createElement('div');
-    div.className = `wc-cw-msg ${m.who === 'whale' ? 'wc-cw-whale' : 'wc-cw-char'}`;
+    const isUser = m.who === 'user';
+    const isWhale = m.who === 'whale';
+    div.className = `wc-cw-msg ${isWhale ? 'wc-cw-whale' : isUser ? 'wc-cw-user' : 'wc-cw-char'}`;
     const nm = document.createElement('div');
     nm.className = 'wc-cw-name';
     nm.textContent = m.name;
     const bd = document.createElement('div');
     bd.className = 'wc-cw-text';
-    bd.textContent = m.text;
+    if (typeof tavernMessageFormatting === 'function') {
+        try {
+            bd.innerHTML = tavernMessageFormatting(String(m.text), m.name, false, isUser, -1);
+        } catch {
+            bd.textContent = m.text;
+        }
+    } else {
+        // 拿不到酒馆渲染器时降级：至少跑一遍正则，再纯文本显示
+        bd.textContent = applyRegex(String(m.text), isUser ? 'is_prompt' : 'is_output');
+    }
     div.append(nm, bd);
     winBody.appendChild(div);
+}
+
+// 手机状态栏时间
+function updatePhoneTime() {
+    const el = winEl?.querySelector('.wc-phone-time');
+    if (!el) return;
+    const now = new Date();
+    el.textContent = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
+// 手机通讯录名称（跟随角色卡 / 用户自定义）
+function refreshPhoneTitle() {
+    const el = winEl?.querySelector('.wc-phone-contact');
+    if (!el) return;
+    const card = loadCharacterCard();
+    const tpl = (settings.cloudLabel || '').trim() || '{char}';
+    const text = tpl.replace(/\{\{char\}\}|\{char\}/gi, card?.name || '角色');
+    el.textContent = text;
+}
+
+// 用户在小手机里发消息：鲸鱼娘和角色都会回复
+async function userSendFromPhone() {
+    if (!winInput || phoneBusy) return;
+    const text = winInput.value.trim();
+    if (!text) return;
+    if (!settings.apiKey) {
+        setWindowStatus('请先在设置里填写 API Key');
+        return;
+    }
+    // 鲸鱼娘正在自动回合里打字：等她说完再发，一步一步来
+    if (autoSession?.busy) {
+        setWindowStatus('等鲸鱼娘说完这句再发哦…');
+        const waitStart = Date.now();
+        while (autoSession?.busy && Date.now() - waitStart < 120000) {
+            await new Promise(r => setTimeout(r, 800));
+        }
+        if (autoSession?.busy) { setWindowStatus('她一直说个不停…先停掉偷玩再发吧'); return; }
+    }
+    winInput.value = '';
+    const userName = getContext()?.name1 || '主人';
+    appendWinMsg('user', text, userName);
+    phoneBusy = true;
+    try {
+        const card = loadCharacterCard();
+        // 1) 鲸鱼娘回复
+        setWindowStatus('鲸鱼娘打字中…');
+        const whaleReply = await callAPI(buildWhaleContext(), {
+            system: buildWhaleSystem(card),
+        });
+        appendWinMsg('whale', whaleReply);
+        act(moodFromText(whaleReply));
+        // 2) 角色回复（此时手机日志已含主人这条消息）
+        if (card) {
+            setWindowStatus(`${card.name}回复中…`);
+            let charReply = settings.usePreset ? await charReplyViaTavern(card, text) : null;
+            if (!charReply) charReply = await charReplyViaAPI(card, winLogTail(20));
+            appendWinMsg('char', charReply, card.name);
+        }
+        setWindowStatus('待机中');
+    } catch (e) {
+        setWindowStatus(`出错了：${e?.message || e}`);
+    } finally {
+        phoneBusy = false;
+    }
+}
+
+// 手机日志 -> 鲸鱼娘视角的 API messages（正则按角色生效：主人=输入侧，AI=输出侧）
+function historyToWhaleMsgs(history) {
+    return history.map(m => ({
+        role: m.who === 'whale' ? 'assistant' : 'user',
+        content: applyRegex(String(m.text), m.who === 'user' ? 'is_prompt' : 'is_output').slice(0, 2000),
+    }));
+}
+
+// 构建鲸鱼娘的上下文（取最新 20 条手机记录）
+function buildWhaleContext() {
+    return historyToWhaleMsgs(winLogTail(20));
+}
+
+// 构建鲸鱼娘的 system prompt
+function buildWhaleSystem(card) {
+    return [
+        settings.persona,
+        card ? `你正在和角色「${card.name}」以及主人进行群聊（你=鲸鱼娘）。` : '你正在和主人聊天。',
+        card?.brief ? `角色设定摘要：\n${card.brief}` : '',
+        '回复保持口语化、简短（一两句话），不要旁白说明，直接说话。',
+    ].filter(Boolean).join('\n\n');
 }
 
 /* ---- 世界书：读取已启用世界书中被对话激活的条目 ---- */
@@ -1612,8 +1752,9 @@ async function buildWorldBookContext(logTail) {
     }
 }
 
-/* ---- 酒馆正则：让正则脚本在偷玩小窗里也生效 ---- */
+/* ---- 酒馆正则：让正则脚本在小手机里也生效 ---- */
 let regexEngineFn = null;
+let regexPlacement = null;
 
 // 动态导入 regex 引擎（路径随版本可能不同），失败静默降级为不处理
 async function initRegexEngine() {
@@ -1625,6 +1766,7 @@ async function initRegexEngine() {
             const m = await import(p);
             if (typeof m?.getRegexedString === 'function') {
                 regexEngineFn = m.getRegexedString;
+                regexPlacement = m.regex_placement || null;
                 return;
             }
         } catch { /* 尝试下一个路径 */ }
@@ -1632,44 +1774,37 @@ async function initRegexEngine() {
 }
 
 // placement: 'is_prompt'（用户输入侧）| 'is_output'（AI 输出侧）
+// 真实签名：getRegexedString(rawString, placement, { isPrompt, isMarkdown, ... })
 function applyRegex(text, placement) {
     if (!regexEngineFn || typeof text !== 'string' || !text) return text;
     try {
-        // 新版签名：getRegexedString({ string, placement })
-        let out = regexEngineFn({ string: text, placement: [placement] });
-        // 旧版签名：getRegexedString(string, { isPrompt }) 兼容
-        if (typeof out !== 'string') out = regexEngineFn(text, { isPrompt: placement === 'is_prompt' });
+        const isPrompt = placement === 'is_prompt';
+        // 新版：传 placement 枚举值；旧版枚举缺失时回退数字（1=USER_INPUT, 2=AI_OUTPUT）
+        const pl = regexPlacement
+            ? (isPrompt ? regexPlacement.USER_INPUT : regexPlacement.AI_OUTPUT)
+            : (isPrompt ? 1 : 2);
+        const out = regexEngineFn(text, pl, { isPrompt, isMarkdown: true });
         return typeof out === 'string' ? out : text;
     } catch {
         return text;
     }
 }
 
-/* ---- 小云朵（人设小窗模式：鲸鱼旁的"悄悄话"标签，常驻显示） ---- */
-function showCloud(card) {
-    if (!root) return;
-    const tpl = (settings.cloudLabel || '').trim() || '和{char}的悄悄话';
-    const text = tpl.replace(/\{\{char\}\}|\{char\}/gi, card.name);
-    const el = root.querySelector('.wc-cloud-text');
-    if (el) el.textContent = text;
-    root.classList.add('wc-show-cloud');
+/* ---- 小手机图标（人设小窗模式：鲸鱼旁的小手机，常驻显示，点击打开手机窗口） ---- */
+function showPhoneIcon() {
+    root?.classList.add('wc-show-phone');
 }
 
-function hideCloud() {
-    root?.classList.remove('wc-show-cloud');
+function hidePhoneIcon() {
+    root?.classList.remove('wc-show-phone');
 }
 
-// 常驻逻辑：人设小窗模式 + 总开关开启 + 没被用户用 ✕ 收起时，一直显示（不管在不在聊）
-function updateCloud() {
+// 常驻逻辑：选了人设小窗模式 + 没关"常驻小手机"时，一直显示（不管有没有开偷玩、有没有选卡）
+function updatePhoneIcon() {
     if (!root) return;
-    let dismissed = false;
-    try { dismissed = !!localStorage.getItem(CLOUD_OFF_KEY); } catch { /* noop */ }
-    const on = settings.cloudOn && !dismissed
-        && settings.autoChatEnabled && settings.autoChatMode !== 'puppet';
-    if (!on) { hideCloud(); return; }
-    const card = loadCharacterCard();
-    if (card) showCloud(card);
-    else hideCloud();
+    const on = settings.cloudOn && settings.autoChatMode !== 'puppet';
+    if (on) showPhoneIcon();
+    else hidePhoneIcon();
 }
 
 // 简单的情绪 -> 动作映射
@@ -1693,11 +1828,12 @@ function bindIdleWatch() {
     setInterval(() => {
         if (!autoSessionReady() || autoSession) return;
         if (document.hidden) return;
-        // 操控输入模式防循环：上次会话结束后主人一直没回来操作过，就不再自动进入，
-        // 等主人真的回来又离开后才会再次触发（光明正大模式不受此限制）
-        if (!settings.openPlay && settings.autoChatMode === 'puppet' && lastSessionEndAt > lastUserActivity) return;
+        const need = (settings.idleDelaySec || 0) * 1000;
+        if (need <= 0) return; // 0 = 仅手动（点「立即开始偷玩」触发），不自动进入
+        // 防循环（两种模式都生效）：上次会话结束后主人一直没回来操作过，就不再自动进入；
+        // 必须等主人真的回来操作过一次、再次离开后才会重新计时触发（光明正大模式不受此限制）
+        if (!settings.openPlay && lastSessionEndAt > lastUserActivity) return;
         const idleMs = Date.now() - lastUserActivity;
-        const need = (settings.idleDelaySec || 60) * 1000;
         if (idleMs >= need) {
             // 标记本次触发点，避免连续轮询重复开始
             lastUserActivity = Date.now();

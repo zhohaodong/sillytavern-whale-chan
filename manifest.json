@@ -6,9 +6,9 @@
     "js": "index.js",
     "css": "style.css",
     "author": "太簇上澣",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "homePage": "https://github.com/zhohaodong/sillytavern-whale-chan",
     "auto_update": false,
     "downloadUrl": "https://github.com/zhohaodong/sillytavern-whale-chan/raw/main/whale-chan.zip",
-    "description": "傲娇的鲸鱼娘桌宠，支持两种偷玩模式（人设小窗 / 操控输入栏）、光明正大模式、常驻小云朵唤起偷聊记录。"
+    "description": "傲娇的鲸鱼娘桌宠，支持两种偷玩模式（人设小窗 / 操控输入栏）、光明正大模式、常驻小手机随时打开和鲸鱼娘与角色聊天。"
 }
