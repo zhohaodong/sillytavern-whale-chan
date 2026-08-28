@@ -370,13 +370,6 @@ function buildPet() {
     root.id = 'whale-chan';
     root.innerHTML = `
         <div class="wc-stage">
-            <div class="wc-phone-icon" title="打开鲸鱼娘的小手机">
-                <div class="wc-phone-icon-body">
-                    <div class="wc-phone-icon-screen"><i class="fa-solid fa-comment-dots"></i></div>
-                    <div class="wc-phone-icon-home"></div>
-                </div>
-                <span class="wc-phone-icon-dot"></span>
-            </div>
             <div class="wc-bubble"></div>
             <div class="wc-shadow"></div>
             <div class="wc-inner">
@@ -408,21 +401,48 @@ function buildPet() {
     });
     window.addEventListener('resize', clampPos);
 
-    // 小手机图标：点击打开聊天手机
-    // pointerup / touchend / click 三层兜底 + 防抖 500ms，确保移动端能可靠点中
-    const phoneIcon = root.querySelector('.wc-phone-icon');
-    let lastPhoneOpenAt = 0;
-    const openFromPhone = (e) => {
+    // ===== 小手机图标：独立 fixed 元素，挂 body，不嵌套在鲸鱼 DOM 里 =====
+    // 这样鲸鱼的 setPointerCapture / preventDefault 不会截断图标的事件
+    buildPhoneIcon();
+}
+
+// 独立小手机图标（不属于鲸鱼 DOM，避免 pointer capture 冲突）
+let phoneIconEl = null;
+let lastPhoneOpenAt = 0;
+
+function buildPhoneIcon() {
+    if (phoneIconEl) return;
+    phoneIconEl = document.createElement('div');
+    phoneIconEl.id = 'wc-phone-icon-float';
+    phoneIconEl.innerHTML = `
+        <div class="wc-phone-icon-body">
+            <div class="wc-phone-icon-screen"><i class="fa-solid fa-comment-dots"></i></div>
+            <div class="wc-phone-icon-home"></div>
+        </div>
+        <span class="wc-phone-icon-dot"></span>`;
+    document.body.appendChild(phoneIconEl);
+
+    const openPhone = (e) => {
         e?.stopPropagation?.();
         e?.preventDefault?.();
         if (Date.now() - lastPhoneOpenAt < 500) return;
         lastPhoneOpenAt = Date.now();
         showChatWindow();
     };
-    phoneIcon?.addEventListener('pointerdown', e => e.stopPropagation());
-    phoneIcon?.addEventListener('pointerup', openFromPhone);
-    phoneIcon?.addEventListener('touchend', openFromPhone, { passive: false });
-    phoneIcon?.addEventListener('click', openFromPhone);
+    // touchstart 最可靠（移动端），click 兜底（桌面端）
+    phoneIconEl.addEventListener('touchstart', openPhone, { passive: false });
+    phoneIconEl.addEventListener('click', openPhone);
+    // 阻止冒泡到 body 上可能的其他监听
+    phoneIconEl.addEventListener('pointerdown', e => e.stopPropagation());
+}
+
+// 让小手机图标跟随鲸鱼位置（鲸鱼移动/缩放/隐藏时调用）
+function syncPhoneIconPos() {
+    if (!phoneIconEl || !root) return;
+    const s = petSize();
+    // 图标在鲸鱼左侧偏上
+    phoneIconEl.style.left = `${pos.x - 72}px`;
+    phoneIconEl.style.top = `${pos.y - 6}px`;
 }
 
 /* ---------------- 图片立绘加载 ---------------- */
@@ -556,6 +576,7 @@ function applyScale() {
 function applyPos() {
     root.style.setProperty('--wc-x', `${pos.x}px`);
     root.style.setProperty('--wc-y', `${pos.y}px`);
+    syncPhoneIconPos(); // 独立小手机图标跟随鲸鱼
 }
 
 function clampPos() {
@@ -633,22 +654,14 @@ function onPointerUp(e) {
     dragState = null;
 }
 
-// 虚拟命中：判断 (cx, cy) 是否落在"鲸鱼左侧手机图标区域"（移动端热区兜底）
+// 虚拟命中：判断 (cx, cy) 是否落在小手机图标区域（兜底，图标已是独立元素）
 function hitPhoneIconRect(cx, cy) {
-    if (!root || !root.classList.contains('wc-show-phone')) return false;
-    const iconEl = root.querySelector('.wc-phone-icon');
-    if (!iconEl) return false;
-    // 优先拿图标 DOM 真实矩形
+    if (!phoneIconEl || !phoneIconEl.classList.contains('show')) return false;
     try {
-        const r = iconEl.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0 && cx >= r.left - 6 && cx <= r.right + 6 && cy >= r.top - 6 && cy <= r.bottom + 6) return true;
-    } catch { /* 退化为相对鲸鱼根的估算矩形 */ }
-    // 回退：#whale-chan 根左边扩展一块手机图标热区
-    const wr = root.getBoundingClientRect();
-    const iconW = 62, iconH = 100;
-    const left = wr.left - iconW - 14;
-    const top = wr.top - 2;
-    return cx >= left - 8 && cx <= left + iconW + 8 && cy >= top - 8 && cy <= top + iconH + 8;
+        const r = phoneIconEl.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && cx >= r.left - 8 && cx <= r.right + 8 && cy >= r.top - 8 && cy <= r.bottom + 8) return true;
+    } catch { /* noop */ }
+    return false;
 }
 
 /* ---------------- 拍一拍核心 ---------------- */
@@ -1101,6 +1114,7 @@ function setEnabled(v) {
     root?.classList.toggle('wc-hidden', !settings.enabled);
     const cb = $('#wc-enabled');
     if (cb.length) cb.prop('checked', settings.enabled);
+    updatePhoneIcon(); // 鲸鱼隐藏/显示时同步小手机图标
     saveSettingsDebounced();
 }
 
@@ -1911,17 +1925,22 @@ function applyRegex(text, placement) {
 
 /* ---- 小手机图标（人设小窗模式：鲸鱼旁的小手机，常驻显示，点击打开手机窗口） ---- */
 function showPhoneIcon() {
-    root?.classList.add('wc-show-phone');
+    root?.classList.add('wc-show-phone'); // 保留旧 class（兼容 CSS 里其他引用）
+    if (phoneIconEl) {
+        phoneIconEl.classList.add('show');
+        syncPhoneIconPos();
+    }
 }
 
 function hidePhoneIcon() {
     root?.classList.remove('wc-show-phone');
+    phoneIconEl?.classList.remove('show');
 }
 
 // 常驻逻辑：选了人设小窗模式 + 没关"常驻小手机"时，一直显示（不管有没有开偷玩、有没有选卡）
 function updatePhoneIcon() {
     if (!root) return;
-    const on = settings.cloudOn && settings.autoChatMode !== 'puppet';
+    const on = settings.cloudOn && settings.autoChatMode !== 'puppet' && settings.enabled;
     if (on) showPhoneIcon();
     else hidePhoneIcon();
 }
