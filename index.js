@@ -336,6 +336,32 @@ function init() {
     greet();
     initImages();
     updatePhoneIcon(); // 常驻小手机图标（人设小窗模式下一直显示）
+
+    // ===== 移动端适配：屏宽/方向/软键盘变化时，确保鲸鱼+手机位置尺寸正常 =====
+    const relayout = () => {
+        clampPos();
+        updatePhoneIcon();
+        // 聊天手机在打开时：重新 clamp 到屏幕内
+        if (winEl && winEl.classList.contains('show')) {
+            const r = winEl.getBoundingClientRect();
+            moveWin(
+                Math.min(Math.max(6, r.left), Math.max(6, window.innerWidth - r.width - 6)),
+                Math.min(Math.max(6, r.top), Math.max(6, window.innerHeight - r.height - 6)),
+            );
+        }
+    };
+    window.addEventListener('resize', relayout);
+    window.addEventListener('orientationchange', () => setTimeout(relayout, 250));
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', () => {
+            // 软键盘弹出：visualViewport 高度变矮，稍后再调整
+            setTimeout(relayout, 150);
+        });
+    }
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') setTimeout(relayout, 300);
+    });
+    if (document.visibilityState === 'visible') setTimeout(relayout, 300);
 }
 
 function buildPet() {
@@ -381,17 +407,20 @@ function buildPet() {
     });
     window.addEventListener('resize', clampPos);
 
-    // 小手机图标：点击（打开/聚焦手机窗口）
-    // pointerup 为主（鼠标/触屏都可靠），click 兜底，500ms 去重防双开
+    // 小手机图标：点击打开聊天手机
+    // pointerup / touchend / click 三层兜底 + 防抖 500ms，确保移动端能可靠点中
     const phoneIcon = root.querySelector('.wc-phone-icon');
     let lastPhoneOpenAt = 0;
-    const openFromPhone = () => {
+    const openFromPhone = (e) => {
+        e?.stopPropagation?.();
+        e?.preventDefault?.();
         if (Date.now() - lastPhoneOpenAt < 500) return;
         lastPhoneOpenAt = Date.now();
         showChatWindow();
     };
-    phoneIcon?.addEventListener('pointerdown', e => e.stopPropagation()); // 不触发拍一拍/拖拽
-    phoneIcon?.addEventListener('pointerup', e => { e.stopPropagation(); openFromPhone(); });
+    phoneIcon?.addEventListener('pointerdown', e => e.stopPropagation());
+    phoneIcon?.addEventListener('pointerup', openFromPhone);
+    phoneIcon?.addEventListener('touchend', openFromPhone, { passive: false });
     phoneIcon?.addEventListener('click', openFromPhone);
 }
 
@@ -559,7 +588,11 @@ function onPointerDown(e) {
         baseX: pos.x, baseY: pos.y,
         moved: false,
     };
-    try { root.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    // 移动端：一旦按下，立刻锁定这根 pointer，避免被浏览器当成滚动/后退手势
+    try {
+        root.setPointerCapture(e.pointerId);
+        if (e.cancelable) e.preventDefault();
+    } catch { /* noop */ }
 }
 
 function onPointerMove(e) {
@@ -1525,13 +1558,31 @@ function buildChatWindow() {
         if (window.toastr) toastr.info('鲸鱼娘的聊天记录已清空', '', { timeOut: 3000 });
     });
 
-    // 用户输入
-    winEl.querySelector('.wc-phone-send').addEventListener('click', () => userSendFromPhone());
+    // 用户输入：移动端 click/pointerup/touchend 三层兜底；桌面端保留 Enter 发送
+    const $send = winEl.querySelector('.wc-phone-send');
+    let _lastSendAt = 0;
+    const trySend = (e) => {
+        if (e) { e.preventDefault?.(); e.stopPropagation?.(); }
+        const now = Date.now();
+        if (now - _lastSendAt < 350) return; // 防止多事件双触发
+        _lastSendAt = now;
+        userSendFromPhone();
+    };
+    $send.addEventListener('click', trySend);
+    $send.addEventListener('pointerup', trySend);
+    $send.addEventListener('touchend', trySend, { passive: false });
     winInput.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            userSendFromPhone();
+            trySend();
         }
+    });
+    // 输入栏 focus：滚动到最新，保证键盘弹出后最后一条消息可见
+    winInput.addEventListener('focus', () => {
+        requestAnimationFrame(() => {
+            winBody.scrollTop = winBody.scrollHeight;
+        });
+        setTimeout(() => { winBody.scrollTop = winBody.scrollHeight; }, 400);
     });
     // 阻止手机内的点击冒泡到桌宠（避免触发拍一拍）
     winEl.addEventListener('pointerdown', e => e.stopPropagation());

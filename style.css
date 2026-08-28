@@ -14,10 +14,13 @@
     transform: translate3d(var(--wc-x, 2000px), var(--wc-y, 900px), 0);
     user-select: none;
     -webkit-user-select: none;
-    touch-action: none;
+    /* 桌面端：整体允许拖拽；移动端：pan-y pan-x 允许页面滚动，不吞掉滑动手势 */
+    touch-action: pan-y;
     cursor: grab;
     filter: drop-shadow(0 6px 14px rgba(20, 40, 120, 0.35));
 }
+/* 真正在拖动时才锁死 touch-action，避免页面滚动 */
+#whale-chan.wc-dragging { touch-action: none; }
 
 #whale-chan.wc-hidden { display: none; }
 #whale-chan.wc-dragging { cursor: grabbing; }
@@ -336,6 +339,10 @@
     pointer-events: none; /* 隐藏时不拦截点击 */
     z-index: 2;
     cursor: pointer;
+    /* 扩大点击热区（移动端 44px 以上才好按），用外边透明 padding + 负 margin 拉回原位置 */
+    padding: 16px 18px 16px 26px;
+    margin: -16px -18px -16px -26px;
+    box-sizing: content-box;
     filter: drop-shadow(0 4px 10px rgba(20, 40, 120, 0.3));
     animation: wc-phone-bob 2.6s ease-in-out infinite;
 }
@@ -480,11 +487,55 @@
 #whale-chan.wc-mode-img .wc-img { display: block; }
 #whale-chan.wc-mode-img svg { display: none; }
 
-/* ---- 小屏适配 ---- */
-@media (max-width: 600px) {
-    .wc-bubble { max-width: 170px; font-size: 12px; }
-    #whale-chan .wc-phone-icon { width: 36px; height: 62px; }
-    #whale-chan-window { width: 280px; height: 440px; }
+/* ---- 小屏 / 移动端适配（>=3 档：平板竖屏 / 手机横屏 / 手机竖屏） ---- */
+@media (max-width: 900px) {
+    #whale-chan { --wc-size: 120px; }
+    .wc-bubble { max-width: 180px; font-size: 12px; padding: 5px 10px; }
+    #whale-chan .wc-phone-icon { animation: none; width: 40px; height: 68px; }
+    /* 聊天手机：平板上贴边缩小一圈，保留拖拽 */
+    #whale-chan-window {
+        right: 10px !important;
+        bottom: 10px !important;
+        width: 300px; height: 480px;
+        max-width: 96vw; max-height: 86vh;
+        min-width: 240px; min-height: 300px;
+    }
+}
+@media (max-width: 700px), (max-height: 600px) {
+    /* 手机：聊天手机默认占尽量满屏，取消原生 resize 角（手机上用手指拖不动 resize corner） */
+    #whale-chan-window {
+        right: 6px !important;
+        bottom: 6px !important;
+        left: 6px !important;
+        top: auto !important;
+        width: auto !important;
+        height: min(78vh, 640px) !important;
+        max-width: none !important;
+        max-height: none !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        resize: none !important;
+    }
+    #whale-chan { --wc-size: 108px; }
+    #whale-chan .wc-phone-icon { width: 38px; height: 64px; }
+    .wc-bubble { max-width: 150px; font-size: 12px; }
+    /* 手机上聊天手机内部字号稍放大，保证可读性 */
+    #whale-chan-window .wc-cw-text { font-size: 14px; }
+    #whale-chan-window .wc-phone-input { font-size: 14px; padding: 8px 12px; min-height: 38px; }
+    #whale-chan-window .wc-phone-send { width: 38px; height: 38px; font-size: 14px; }
+}
+/* 极低屏高（手机横屏）：进一步收窄鲸鱼 */
+@media (max-height: 500px) {
+    #whale-chan { --wc-size: 88px; }
+    #whale-chan .wc-phone-icon { width: 32px; height: 54px; }
+    #whale-chan-window { height: min(84vh, 520px) !important; }
+}
+/* 软键盘弹出：聊天手机上移并压缩，保证输入栏可见 */
+@media (max-height: 640px) and (max-width: 900px) and (orientation: portrait) {
+    #whale-chan-window {
+        height: min(70vh, 520px) !important;
+        bottom: env(keyboard-inset-height, 6px) !important;
+    }
 }
 
 /* ---- 偷玩模式：模式选择器 ---- */
