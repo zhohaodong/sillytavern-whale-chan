@@ -21,6 +21,7 @@ Thumbs.db
 *~
 .cache/
 .tmp/
+*.tmp.js
 
 # 工作区残留的原始素材 / 草稿
 original*.jpg

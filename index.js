@@ -447,12 +447,11 @@ function buildPhoneIcon() {
             if (window.toastr) toastr.error(`打开手机失败: ${err.message}`, '', { timeOut: 5000 });
         }
     };
-    // 鲸鱼旁的小图标：touchstart 最可靠（移动端），click 兜底（桌面端）
-    phoneIconEl.addEventListener('touchstart', openPhone, { passive: false });
+    // 两个入口统一使用 pointerup，click 仅作兜底，避免重复触发
+    phoneIconEl.addEventListener('pointerup', openPhone);
     phoneIconEl.addEventListener('click', openPhone);
     phoneIconEl.addEventListener('pointerdown', e => e.stopPropagation());
-    // FAB：原生 <button>，touchend + click 双保险
-    phoneFabEl.addEventListener('touchend', openPhone, { passive: false });
+    phoneFabEl.addEventListener('pointerup', openPhone);
     phoneFabEl.addEventListener('click', openPhone);
 }
 
@@ -659,6 +658,11 @@ function onPointerMove(e) {
 
 function onPointerUp(e) {
     if (!dragState || e.pointerId !== dragState.id) return;
+    if (e.type === 'pointercancel') {
+        root.classList.remove('wc-dragging');
+        dragState = null;
+        return;
+    }
     if (dragState.moved) {
         root.classList.remove('wc-dragging');
         savePos();
